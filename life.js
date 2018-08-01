@@ -1,9 +1,11 @@
-var canvasWidth, canvasHeight;
+var worldWidth, worldHeight, dnaLenth = 100;
 
 // собственно виртуальная машина
 function executeCreature(creature, world) {
     var ip = 0;
-    while (ip < creature.code) {
+    creature.upEnergy();
+    creature.divide();
+    while (ip < creature.code.length) {
         var op = creature.code[ip];
         switch (op) {
             // движение по направлениям
@@ -40,12 +42,14 @@ function executeCreature(creature, world) {
                 creature.move(creature.x - 1, creature.y + 1);
                 break;
         }
+        ip++;
     }
+    creature.ageing();
 }
 
 function Creature(x, y, world) {
     var code = [];
-    for (var i = 0; i < 100; i++) {
+    for (var i = 0; i < dnaLenth; i++) {
         code[i] = 90;
     }
 
@@ -54,9 +58,11 @@ function Creature(x, y, world) {
     this.code = code;
     this.energy = 1;
     this.world = world;
+    this.cycles = 0;
 
+    // движение
     this.move = function(x, y) {
-        if (this.world.getCell(x, y)) {
+        if (this.world.getCell(x, y) !== null) {
             return;
         }
 
@@ -64,14 +70,60 @@ function Creature(x, y, world) {
         this.world.setCell(x, y, this);
         this.x = x;
         this.y = y;
+    };
+
+    // кормление
+    this.upEnergy = function() {
+        // пока только от солнца
+        this.energy += 1 / (this.y + 1);
+    };
+
+    // размножение
+    this.divide = function() {
+        if (this.energy < 5) {
+            return;
+        }
+
+        var cell = this.world.findNearestEmptyCell(this.x, this.y);
+        if (cell === undefined) {
+            // печаль... перенаселение
+            this.world.setCell(this.x, this.y);
+        } else {
+            var child = new Creature(cell[0], cell[1], this.world);
+            child.code = mutate(this.code);
+            this.world.setCell(child.x, child.y, child)
+        }
+        this.energy = 2.5;
+    };
+
+    // взросление и смерть
+    this.ageing = function() {
+        this.cycles += 1;
+        if (this.cycles == 100) {
+            this.world.setCell(this.x, this.y, null);
+        }
+    };
+}
+
+function mutate(code) {
+    var offset = Math.floor(Math.random() * dnaLenth),
+        op = Math.floor(Math.random() * 100); // пока пусть будет 100 команд
+
+    var res = [];
+    for (var i = 0; i < code.length; i++) {
+        res[i] = code[i];
     }
+
+    res[offset] = op;
+
+    return res;
 }
 
 function World() {
     var data = [];
-    for (var y = 0; y < canvasHeight; y++) {
+    for (var y = 0; y < worldHeight; y++) {
         data[y] = [];
-        for (var x = 0; x < canvasWidth; x++) {
+        for (var x = 0; x < worldWidth; x++) {
             data[y][x] = null;
         }
     }
@@ -79,21 +131,73 @@ function World() {
     this.data = data;
 
     this.getCell = function(x, y) {
+        if (this.data[y] === undefined) {
+            return undefined;
+        }
+
+        if (this.data[y][x] === undefined) {
+            return undefined;
+        }
+
         return this.data[y][x];
     };
 
     this.setCell = function(x, y, val) {
+        if (this.data[y] === undefined) {
+            return undefined;
+        }
+
+        if (this.data[y][x] === undefined) {
+            return undefined;
+        }
+
         this.data[y][x] = val
     };
+
+    this.findNearestEmptyCell = function(x, y) {
+        if (this.getCell(x, y + 1) === null) {
+            return [x, y + 1];
+        }
+
+        if (this.getCell(x + 1, y + 1) === null) {
+            return [x + 1, y + 1];
+        }
+
+        if (this.getCell(x + 1, y) === null) {
+            return [x + 1, y];
+        }
+
+        if (this.getCell(x + 1, y - 1) === null) {
+            return [x + 1, y - 1];
+        }
+
+        if (this.getCell(x, y - 1) === null) {
+            return [x, y - 1];
+        }
+
+        if (this.getCell(x - 1, y - 1) === null) {
+            return [x - 1, y - 1];
+        }
+
+        if (this.getCell(x - 1, y) === null) {
+            return [x - 1, y];
+        }
+
+        if (this.getCell(x - 1, y + 1) === null) {
+            return [x - 1, y + 1];
+        }
+
+        return undefined;
+    }
 }
 
 function render(world, ctx) {
-    var img = ctx.getImageData(0, 0, canvasWidth, canvasHeight);
+    var img = ctx.getImageData(0, 0, worldWidth, worldHeight);
 
     for (var i = 0; i < img.data.length; i += 4) {
         var di = i / 4,
-            y = Math.floor(di / canvasWidth),
-            x = Math.floor(di - y * canvasWidth);
+            y = Math.floor(di / worldWidth),
+            x = Math.floor(di - y * worldWidth);
 
         if (world.getCell(x, y)) {
             img.data[i] = 0;
@@ -108,14 +212,21 @@ function render(world, ctx) {
 }
 
 function life(world) {
-
+    for (var y = 0; y < worldHeight; y++) {
+        for (var x = 0; x < worldWidth; x++) {
+            var c = world.getCell(x, y);
+            if (c != null) {
+                executeCreature(c, world);
+            }
+        }
+    }
 }
 
 function init() {
     var w = new World();
     for (var i = 0; i < 1000; i++) {
-        var x = Math.floor(Math.random() * canvasWidth),
-            y = Math.floor(Math.random() * canvasHeight);
+        var x = Math.floor(Math.random() * worldWidth),
+            y = Math.floor(Math.random() * worldHeight);
 
         if (!w.getCell(x, y)) {
             var c = new Creature(x, y, w);
@@ -129,8 +240,8 @@ window.onload = function () {
     var canvas = document.getElementById("life"),
         ctx = canvas.getContext("2d"),
         world;
-    canvasWidth = canvas.width;
-    canvasHeight = canvas.height;
+    worldWidth = canvas.width;
+    worldHeight = canvas.height;
 
     world = init();
     setInterval(render, 1000, world, ctx);
